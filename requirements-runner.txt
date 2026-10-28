@@ -1,0 +1,17 @@
+# Environment of RCAEval's own runner (main.py), used for TORAI and the BARO scorer on RE2 (evaluation/pinned_runner.py).
+# Python 3.8.
+causal-learn==0.1.2.3
+graphviz==0.20.3
+joblib==1.4.2
+matplotlib==3.7.5
+networkx==2.5
+numpy==1.23.5
+pandas==2.0.1
+pydot==4.0.1
+pyparsing==3.1.4
+requests==2.30.0
+scikit-learn==1.2.2
+scipy==1.10.1
+statsmodels==0.14.1
+tqdm==4.65.0
+-e git+https://github.com/phamquiluan/RCAEval.git@bb48c5aa9a24f1d5fcc716bdd479ea2d63145c90#egg=RCAEval
