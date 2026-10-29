@@ -12,7 +12,7 @@ Aggregation alternatives computed from the same series scores (descriptive):
 * ``sum_all``       plain sum: a(u) = sum_i s_i.
 * ``count3_max``    number of series with s_i >= 3, ties broken by the maximum.
 
-Sensitivity checks (post hoc; reported as such in the paper):
+Sensitivity checks (descriptive):
 
 * ``v11_mean``          count-normalised score: the mean of log(1 + s_i) instead of the sum.
 * ``v11_no_reference``  each series' own normal-window 90th-percentile score subtracted before the log (clipped at 0).

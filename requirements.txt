@@ -5,6 +5,6 @@ networkx>=3.0     # 3.6.1
 scikit-learn>=1.4 # 1.8.0  (RCAEval comparators)
 scipy>=1.11       # 1.17.1 (RCAEval comparators)
 requests          # imported by RCAEval.utility
-matplotlib        # imported by some RCAEval modules
+matplotlib        # the figures; also imported by some RCAEval modules
 pyyaml
 pyparsing

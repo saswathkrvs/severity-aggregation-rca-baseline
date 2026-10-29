@@ -5,7 +5,8 @@
 * Paired Top-1 differences use a cluster bootstrap: the cases of one application-service-fault combination are
   resampled together, 10,000 resamples, NumPy ``default_rng(0)``, percentile intervals (:func:`cluster_bootstrap`).
   The clusters are taken in the order the cases are listed, so the case order is part of the result.
-* :func:`signflip_exact_p` is the exact two-sided sign-flip test on the per-combination totals (a post hoc check);
+* :func:`signflip_exact_p` is the exact two-sided sign-flip test on the per-combination totals (the confirmatory test of
+  ``evaluation.analysis``);
   :func:`mcnemar_exact` is the case-level exact McNemar test.
 """
 from __future__ import annotations
@@ -192,7 +193,7 @@ def ordered_nodes(r: dict) -> list:
 
 def stores_dropped(recs_m: dict) -> dict:
     """The records rescored after removing datastore nodes (redis, *-db, *mongo*, *mysql*, rabbitmq*) from every
-    ranking (a post hoc diagnostic)."""
+    ranking (a diagnostic)."""
     out = {}
     for cid, r in recs_m.items():
         if r.get("status") != "completed":

@@ -5,8 +5,9 @@ graph-based root-cause analysis (RCA) methods. It is a project
 re-implementation for development experiments. It is **not** a reproduction
 of either paper's code or published results.
 
-All rules below were fixed before the first evaluation, on 18 development
-incidents. Changing any rule creates a new method version.
+The rules below were fixed on 18 development incidents. The tolerance in
+rule 3 only treats floating-point noise as zero spread (it matters for
+Nezha's latency series) and changes no RCAEval or PetShop result.
 
 Pipeline and rules
 ------------------
@@ -35,7 +36,9 @@ Pipeline and rules
    - scale ``s = 1.4826 * MAD``; if ``MAD == 0`` then ``s = SD(N)``
      (population SD, ``ddof=0``); if N is constant, the indicator is
      **excluded** (no scale can be estimated). It is recorded as excluded,
-     with a flag saying whether A differs from the constant;
+     with a flag saying whether A differs from the constant. "Zero" means
+     at most ``SPREAD_TOLERANCE`` (1e-9) times the largest absolute value
+     of N: a smaller MAD or SD is floating-point noise, not variation;
    - ``z_t = (x_t - m) / s`` for every ``t`` in A;
    - statistic: ``p90`` (primary) = 90th percentile of ``z_t`` (numpy
      default linear interpolation), i.e. the deviation must persist in at
@@ -100,6 +103,7 @@ TOP_EVIDENCE = 3
 PPR_TOL = 1e-12
 PPR_MAX_ITER = 10000
 RANK_DECIMALS = 12
+SPREAD_TOLERANCE = 1e-9
 STATISTICS = ("p90", "max")
 PRIMARY_STATISTIC = "p90"
 SERVICE_ALIASES = {"frontendservice": "frontend"}
@@ -209,10 +213,15 @@ def score_indicator(normal: Sequence[float], anomalous: Sequence[float], statist
                    changed_in_anomalous=bool(np.any(anomalous != normal[0])))
         return out
     mad = float(np.median(np.abs(normal - centre)))
-    if mad > 0:
+    tiny = SPREAD_TOLERANCE * float(np.max(np.abs(normal)))
+    if mad > tiny:
         scale, rule = MAD_TO_SIGMA * mad, "mad"
     else:
         scale, rule = float(np.std(normal)), "sd"
+        if scale <= tiny:
+            out.update(excluded=True, reason="constant_normal_window",
+                       changed_in_anomalous=bool(np.any(np.abs(anomalous - centre) > tiny)))
+            return out
     z = (anomalous - centre) / scale
     value = float(np.quantile(z, 0.9)) if statistic == "p90" else float(np.max(z))
     out.update(score=max(0.0, value), scale=scale, scale_rule=rule, statistic_value=value)

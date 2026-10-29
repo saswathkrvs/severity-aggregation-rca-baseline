@@ -66,12 +66,12 @@ def compute(results_root) -> OrderedDict:
             d = diff(s, "v11", m)
             main["%s v11-%s" % (s, m)] = d + [S.label(d[0], d[1], len(C[s]), S.failures(R[s][m], C[s]))]
     out["main_differences"] = main
-    # RE3 against N-Sigma: where the difference lies, and the post hoc sign-flip test
+    # RE3 against N-Sigma: where the difference lies, and the sign-flip test
     tot = S.cluster_totals(R["RE3"]["v11"], R["RE3"]["nsigma"], C["RE3"])
     p = S.signflip_exact_p(list(tot.values()))
     out["re3_nsigma"] = {"combinations_with_a_difference": sum(1 for v in tot.values() if v != 0),
                          "combinations": len(tot), "signflip_p": round(p, 3), "signflip_p_x5": round(min(1.0, 5 * p), 2)}
-    # RE3 BARO: datastore first in Online Boutique and Sock Shop; datastore nodes removed (post hoc)
+    # RE3 BARO: datastore first in Online Boutique and Sock Shop; datastore nodes removed
     ob_ss = [c for c in C["RE3"] if c["system"] in ("OB", "SS")]
     first_store = sum(1 for c in ob_ss if (S.ordered_nodes(R["RE3"]["baro"][c["case"]]) or [None])[0] in ("redis", "session-db"))
     dropped_baro = S.stores_dropped(R["RE3"]["baro"])
