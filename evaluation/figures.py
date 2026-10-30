@@ -33,25 +33,35 @@ def _save(fig, out, name):
 
 def forest(res, out):
     """Paired Top-1 difference of the log-compressed sum against each comparator, per held-out suite, in
-    percentage points of the suite, with 95 % cluster-bootstrap intervals."""
+    percentage points of the suite, with 95 % cluster-bootstrap intervals; the bottom row weights the five suites
+    equally (``suite_average``)."""
     import matplotlib.pyplot as plt
     _style(plt)
     suites = ["RE1", "RE3", "H2", "PS", "NZ"]
     comps = [("agg:max", "maximum aggregation", BLUE, "o"), ("cmp:nsigma", "N-Sigma", ORANGE, "s"),
-             ("cmp:baro", "BARO scorer", AQUA, "D"), ("cmp:simplerca", "SimpleRCA metric rules", YELLOW, "^")]
-    fig, ax = plt.subplots(figsize=(6.3, 3.0))
-    y = 0.0
+             ("cmp:baro", "BARO scorer", AQUA, "D"), ("cmp:torai_stage", "TORAI severity stage", MAGENTA, "v"),
+             ("cmp:simplerca", "SimpleRCA metric rules", YELLOW, "^")]
+    step = 0.15
+    fig, ax = plt.subplots(figsize=(6.3, 3.9))
     yticks, ylabels = [], []
+
+    def row(y, values, first):
+        for j, ((m, label, color, marker), (d, lo, hi)) in enumerate(zip(comps, values)):
+            yy = y + (len(comps) - 1 - j) * step
+            ax.plot([lo, hi], [yy, yy], color=color, lw=1.6, solid_capstyle="round")
+            ax.plot([d], [yy], marker=marker, color=color, ms=4.5, mec="white", mew=0.6,
+                    label=label if first else None, linestyle="none")
+        yticks.append(y + step * (len(comps) - 1) / 2)
+
+    avg = res["suite_average"]["log_sum_minus"]
+    row(0.0, [(avg[m]["diff_pp"], avg[m]["ci95_pp"][0], avg[m]["ci95_pp"][1]) for m, *_ in comps], True)
+    ylabels.append("all five, suites\nweighted equally")
+    ax.axhline(0.95, color=GRID, lw=0.8)
+    y = 1.25
     for s in reversed(suites):
         n = res["n"][s]
-        for j, (m, label, color, marker) in enumerate(comps):
-            p = res["paired"][s][m]
-            yy = y + (len(comps) - 1 - j) * 0.17
-            lo, hi = 100.0 * p["ci95"][0] / n, 100.0 * p["ci95"][1] / n
-            ax.plot([lo, hi], [yy, yy], color=color, lw=1.6, solid_capstyle="round")
-            ax.plot([100.0 * p["diff"] / n], [yy], marker=marker, color=color, ms=4.5, mec="white", mew=0.6,
-                    label=label if s == suites[-1] else None, linestyle="none")
-        yticks.append(y + 0.255)
+        row(y, [(100.0 * res["paired"][s][m]["diff"] / n, 100.0 * res["paired"][s][m]["ci95"][0] / n,
+                 100.0 * res["paired"][s][m]["ci95"][1] / n) for m, *_ in comps], False)
         ylabels.append("%s (n = %d)" % (SUITE_LABEL[s], n))
         y += 1.0
     ax.axvline(0, color=MUTED, lw=0.8)
@@ -62,7 +72,7 @@ def forest(res, out):
     ax.set_axisbelow(True)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False, handletextpad=0.3,
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3, frameon=False, handletextpad=0.3,
               columnspacing=1.2)
     _save(fig, out, "fig_forest")
     plt.close(fig)

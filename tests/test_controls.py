@@ -139,3 +139,29 @@ class Summaries(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuiteAverage(unittest.TestCase):
+    @staticmethod
+    def recs(hits_a, hits_b):
+        return [{"ranks": {analysis.V11: 1 if a else 2, "agg:max": 1 if b else 2}, "cluster": ["app", "svc%d" % i, "f"]}
+                for i, (a, b) in enumerate(zip(hits_a, hits_b))]
+
+    def test_suites_weigh_equally(self):
+        R = {"X": self.recs([1, 1, 1, 1], [0, 0, 0, 0]),          # +100 percentage points on 4 incidents
+             "Y": self.recs([0] * 16, [0] * 16)}                     # no difference on 16 incidents
+        sa = analysis.suite_average(R, methods=("agg:max",), suites=("X", "Y"))
+        self.assertEqual(sa["top1_percent"][analysis.V11], 50.0)  # (100 + 0) / 2, not 4 / 20
+        self.assertEqual(sa["top1_percent"]["agg:max"], 0.0)
+        self.assertEqual(sa["log_sum_minus"]["agg:max"]["diff_pp"], 50.0)
+        lo, hi = sa["log_sum_minus"]["agg:max"]["ci95_pp"]
+        self.assertTrue(lo <= 50.0 <= hi)
+
+    def test_identical_methods_differ_by_zero(self):
+        R = {"X": self.recs([1, 0, 1], [1, 0, 1])}
+        sa = analysis.suite_average(R, methods=("agg:max",), suites=("X",))
+        self.assertEqual(sa["log_sum_minus"]["agg:max"], {"diff_pp": 0.0, "ci95_pp": [0.0, 0.0]})
+
+    def test_evaluator_service_of_a_node(self):
+        self.assertEqual(analysis._service_of("RE1", "cartservice-db_redis"), "cartservice")
+        self.assertEqual(analysis._service_of("PS", "PetSite"), "PetSite")

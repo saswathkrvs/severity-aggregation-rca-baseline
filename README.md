@@ -26,7 +26,7 @@ the aggregation rule with groups of scenarios held out.
 | `evaluation/newdata.py` | the PetShop and Nezha cases and their windows |
 | `evaluation/study.py` | runs every method and variant on a suite and writes one record per case |
 | `evaluation/controls.py` | the controls: equal series counts, the fault-free noise floor, normal windows of different lengths, the maximum over metric series only; run times of every method under one protocol |
-| `evaluation/analysis.py`, `evaluation/figures.py` | every table, number and figure of the paper, from the records |
+| `evaluation/analysis.py`, `evaluation/figures.py` | every table, number and figure of the paper, from the records, including the suite averages and the fault-free agreement check |
 | `evaluation/datasets.py`, `rankers.py`, `comparators.py`, `pinned_runner.py`, `run.py` | the original runs: case discovery and decoding, the in-process rankers, the pinned RCAEval comparators (including RCD, CIRCA, ε-Diagnosis) and TORAI on RE2 |
 | `evaluation/stats.py`, `evaluation/tables.py` | measures and the tables of the original runs |
 | `evaluation/re2_heldout_splits.json` | the RE2 development cases and the splits H1 and H2 |
@@ -49,6 +49,21 @@ and draws the figures. `--json analysis.json` also writes everything the analysi
 and MRR per method, suite and fault type. `python -m evaluation.tables --check` does the same for the tables of the
 original runs.
 `python -m unittest discover -s tests` runs the tests (with `src` on `PYTHONPATH`).
+
+How the comparisons are organised (`evaluation/analysis.py`, module docstring):
+
+* **Primary:** the log sum against N-Sigma and against the BARO scorer on RE1 and RE3, the four comparisons planned
+  before the RE1 and RE3 runs (95 % cluster-bootstrap intervals; 99 % intervals as the multiplicity check; exact
+  sign-flip tests with Holm's adjustment as a further check).
+* **Planned secondary:** the log sum against the maximum of the same series scores on RE1 and RE3 (the aggregation
+  operator alone).
+* **Exploratory:** everything else, including RE2-H2, PetShop, Nezha, the controls and the sensitivity analyses.
+* **Suite averages** weight the five held-out suites equally; the paper reports them beside the incident-pooled
+  counts, which RCAEval dominates (555 of 724 incidents).
+* **Fault-free agreement**, a check that needs no labels: how often the service a rule ranks first at the fault is
+  the service it ranks first in the incident's fault-free windows.
+
+The paper refers to the release tagged `v1.0`: `git checkout v1.0` gives exactly the code and records it reports.
 
 ## Rerun the methods
 

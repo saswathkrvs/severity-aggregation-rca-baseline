@@ -5,8 +5,8 @@
 * Paired Top-1 differences use a cluster bootstrap: the cases of one application-service-fault combination are
   resampled together, 10,000 resamples, NumPy ``default_rng(0)``, percentile intervals (:func:`cluster_bootstrap`).
   The clusters are taken in the order the cases are listed, so the case order is part of the result.
-* :func:`signflip_exact_p` is the exact two-sided sign-flip test on the per-combination totals (the confirmatory test of
-  ``evaluation.analysis``);
+* :func:`signflip_exact_p` is the exact two-sided sign-flip test on the per-combination totals (used by
+  ``evaluation.analysis`` as a check of the primary comparisons and for the planned secondary comparison);
   :func:`mcnemar_exact` is the case-level exact McNemar test.
 """
 from __future__ import annotations

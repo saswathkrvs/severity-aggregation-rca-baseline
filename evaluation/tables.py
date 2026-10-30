@@ -1,6 +1,8 @@
-"""Every table and reported number of the paper, recomputed from the per-case records in ``results/``.
+"""The tables of the original runs (the method under test against the pinned RCAEval comparators on RE1, RE3 and
+RE2, as first released), recomputed from the per-case records in ``results/``. The paper's own tables and reported
+results are computed and checked by :mod:`evaluation.analysis`.
 
-    python -m evaluation.tables              # print the tables and the numbers quoted in the text
+    python -m evaluation.tables              # print these tables and the numbers that go with them
     python -m evaluation.tables --check      # also compare each value with the published one (exit 1 on a mismatch)
     python -m evaluation.tables --json out.json
 
@@ -201,7 +203,7 @@ def check(got, want, path="") -> list:
 def render(o: dict) -> str:
     L = []
     t1 = o["table1"]
-    L += ["Table 1  Main metric-only results (Top-1 / Top-3 / Top-5; RE1 n = %d, RE3 n = %d)" % (o["n"]["RE1"], o["n"]["RE3"]),
+    L += ["Original runs, table 1  Main metric-only results (Top-1 / Top-3 / Top-5; RE1 n = %d, RE3 n = %d)" % (o["n"]["RE1"], o["n"]["RE3"]),
           "%-30s %-18s %-18s" % ("Method", "RE1", "RE3")]
     for m, v in t1.items():
         L.append("%-30s %-18s %-18s" % (LABELS[m], " / ".join(map(str, v["RE1"])), " / ".join(map(str, v["RE3"]))))
@@ -214,7 +216,7 @@ def render(o: dict) -> str:
     b = o["re3_baro"]
     L.append("  RE3 BARO: a datastore ranked first in %d of %d OB/SS cases; without datastore nodes BARO %d, v1.1 %d of 90"
              % (b["datastore_ranked_first"], b["ob_ss_cases"], b["top1_without_datastores"], b["v11_top1_without_datastores"]))
-    L += ["", "Table 2  RE1 Top-1 by fault type (n = 75 each) and system (n = 125 each)",
+    L += ["", "Original runs, table 2  RE1 Top-1 by fault type (n = 75 each) and system (n = 125 each)",
           "%-24s" % "Method" + "".join("%7s" % k for k in ("CPU", "Delay", "Disk", "Loss", "Memory", "OB", "SS", "TT"))]
     for m, row in o["table2"].items():
         L.append("%-24s" % LABELS[m] + "".join("%7d" % row[k] for k in ("cpu", "delay", "disk", "loss", "mem", "OB", "SS", "TT")))
@@ -225,14 +227,14 @@ def render(o: dict) -> str:
     L += ["", "Aggregation (RE1, RE3): v1.1 - v1 Top-1 %s; plain sum %s; v1.1 - plain sum %s; count(s >= 3) %s"
           % (a["v11_minus_v1_top1"], a["sum_all_top1"], a["v11_minus_sum_all"], a["count3_max_top1"]),
           "Inferred graph, v1 without/with: %s; v1.1 on H2 without/with: %s" % (o["inferred_graph"]["v1"], o["inferred_graph"]["v11_H2"])]
-    L += ["", "Table 3  Held-out RE2 Top-1 (H1 n = %d, H2 n = %d)" % (o["n"]["H1"], o["n"]["H2"])]
+    L += ["", "Original runs, table 3  Held-out RE2 Top-1 (H1 n = %d, H2 n = %d)" % (o["n"]["H1"], o["n"]["H2"])]
     for m, v in o["table3"].items():
         L.append("%-30s %5d %5d" % (LABELS[m], v["H1"], v["H2"]))
     h = o["h2_differences"]
     L += ["  H2: v1.1 - TORAI %+d [%d, %d]; v1.1 - v1 %+d [%d, %d]" % (h["v11-torai"][0], *h["v11-torai"][1], h["v11-v1"][0], *h["v11-v1"][1]),
           "  BARO through RCAEval's runner: same labelled-service rank in %s cases; trace series used in %d of 252 cases"
           % (o["baro_runner_agreement"], o["trace_series_cases"])]
-    L += ["", "Table 4  Supplementary comparators (Top-1 / MRR)"]
+    L += ["", "Original runs, table 4  Supplementary comparators (Top-1 / MRR)"]
     for m, v in o["table4"].items():
         L.append("%-34s %4d / %.3f   %4d / %.3f" % (LABELS[m], v["RE1"][0], v["RE1"][1], v["RE3"][0], v["RE3"][1]))
     L += ["  CIRCA on RE3: %s; Train Ticket timeouts %d. ε-Diagnosis ranks at most %d columns."
@@ -240,7 +242,7 @@ def render(o: dict) -> str:
           "  Median v1.1 batch time %s s; N-Sigma median method-call time %s s"
           % (o["timing"]["v11_median_process_seconds"], o["timing"]["nsigma_median_function_seconds"])]
     t5 = o["table5"]
-    L += ["", "Table 5  Instrumentation-density checks",
+    L += ["", "Original runs, table 5  Instrumentation-density checks",
           "  Cases where v1.1 and v1 rank the label differently [n, as many, more, fewer]: %s" % t5["series_counts"],
           "  Placebo, H1: v1.1 %d, v1 %d of 162 (chance %.1f)" % (t5["placebo_H1"]["v11"], t5["placebo_H1"]["v1"], t5["placebo_H1"]["chance"]),
           "  Count-normalised: %s; reference-window score removed: %s; v1.1: %s"

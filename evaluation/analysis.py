@@ -15,10 +15,17 @@ Statistics
   ``default_rng(0)``, percentile intervals); clusters are (application, service, fault) on RCAEval, (component,
   injected parameter) on PetShop and (application, service, fault type) on Nezha. A pooled difference over several
   suites resamples clusters within each suite.
-* The confirmatory family is six comparisons on the two RCAEval suites that played no part in developing the
-  method (RE1, RE3): the log-compressed sum against the maximum aggregation, N-Sigma and the BARO scorer. Each is
-  tested with the exact two-sided sign-flip test on the per-cluster Top-1 totals, and the six p-values are adjusted
-  with Holm's procedure. Every other comparison, and every control, is exploratory (estimate and interval).
+* The primary comparisons are the four that were planned before the RE1 and RE3 runs, on the two RCAEval suites that
+  played no part in developing the method: the log-compressed sum against N-Sigma and against the BARO scorer, on
+  RE1 and on RE3. Each is judged by its 95 % cluster-bootstrap interval, with 99 % intervals (0.05 / 5, Bonferroni
+  over the five comparisons planned) as the planned multiplicity check. The exact two-sided sign-flip test on the
+  per-cluster Top-1 totals, with Holm's adjustment over the four, is a further check added later.
+* The comparison with the maximum of the same series scores on RE1 and RE3 (the aggregation operator alone) was
+  planned as a secondary comparison: estimate, interval and an unadjusted sign-flip p-value. Every other comparison,
+  and every control, is exploratory (estimate and interval).
+* Suite averages weight the five held-out suites equally: the mean of the suites' Top-1 percentages, and for a
+  difference the mean of the suites' paired differences in percentage points of the suite, with a 95 % interval
+  from resampling clusters within each suite.
 * The controls report expected Top-1 counts where they draw random subsets or blocks (the number of first places
   divided by the number of draws, summed over the suite); their paired differences use the same cluster bootstrap.
 """
@@ -50,9 +57,11 @@ SUITE_NAMES = OrderedDict([("H1", "RE2-H1 (development)"), ("H2", "RE2-H2"), ("R
 DEV_AGGS = ("max", "sum_top2", "sum", "mean_top3", "logsum", "sqrtsum", "sum_cap10", "sum_cap3", "count3", "count5",
             "logmean", "logsum_metric")
 EXTRA_AGGS = ("mean", "lse", "count_usable")
-CONFIRMATORY = (("RE1", "agg:max"), ("RE1", "cmp:nsigma"), ("RE1", "cmp:baro"),
-                ("RE3", "agg:max"), ("RE3", "cmp:nsigma"), ("RE3", "cmp:baro"))
+PRIMARY = (("RE1", "cmp:nsigma"), ("RE1", "cmp:baro"), ("RE3", "cmp:nsigma"), ("RE3", "cmp:baro"))
+OPERATOR_PLANNED = (("RE1", "agg:max"), ("RE3", "agg:max"))
 V11 = "agg:logsum"
+AVERAGED = ("agg:max", "cmp:nsigma", "cmp:baro", "cmp:torai_stage", "cmp:simplerca", "cmp:alerts3")
+RCAEVAL = ("RE1", "RE3", "H1", "H2")
 
 
 # ----------------------------------------------------------------------------------------------- loading
@@ -123,9 +132,11 @@ def paired(recs, a, b, key=None) -> dict:
     idx = rng.integers(0, len(totals), size=(RESAMPLES, len(totals)))
     sums = totals[idx].sum(axis=1)
     lo, hi = np.percentile(sums, [2.5, 97.5])
+    lo99, hi99 = np.percentile(sums, [0.5, 99.5])
     a_only = sum(1 for r in recs if (key(r, a) if key else hit(r, a)) and not (key(r, b) if key else hit(r, b)))
     b_only = sum(1 for r in recs if (key(r, b) if key else hit(r, b)) and not (key(r, a) if key else hit(r, a)))
     return {"diff": int(round(totals.sum())), "ci95": [int(round(lo)), int(round(hi))],
+            "ci99": [int(round(lo99)), int(round(hi99))],
             "p_signflip": S.signflip_exact_p([int(v) for v in totals]), "clusters": len(totals),
             "clusters_for": int(np.sum(totals > 0)), "clusters_against": int(np.sum(totals < 0)),
             "a_only": a_only, "b_only": b_only}
@@ -146,6 +157,65 @@ def pooled(suite_recs: dict, a, b) -> dict:
     point = sum(t.sum() for t in per)
     n = sum(len(r) for r in suite_recs.values())
     return {"diff": int(round(point)), "ci95": [int(round(lo)), int(round(hi))], "cases": n}
+
+
+def suite_average(R, methods=AVERAGED, suites=HELDOUT) -> OrderedDict:
+    """Every suite weighted equally: the mean over ``suites`` of each method's Top-1 in per cent of the suite, and
+    the mean of the suites' paired differences (log sum minus method) in percentage points of the suite, with a 95 %
+    interval from 10,000 resamples of clusters within each suite (one generator per method, seed 0)."""
+    out = OrderedDict()
+    out["suites"] = list(suites)
+    out["top1_percent"] = OrderedDict(
+        (m, round(float(np.mean([100.0 * topk(R[s], m) / len(R[s]) for s in suites])), 1)) for m in (V11,) + methods)
+    minus = OrderedDict()
+    for m in methods:
+        rng = np.random.default_rng(SEED)
+        sums = np.zeros(RESAMPLES)
+        point = 0.0
+        for s in suites:
+            totals = np.array(list(_cluster_totals(R[s], V11, m).values()), dtype=float)
+            idx = rng.integers(0, len(totals), size=(RESAMPLES, len(totals)))
+            sums += 100.0 * totals[idx].sum(axis=1) / len(R[s])
+            point += 100.0 * totals.sum() / len(R[s])
+        sums /= len(suites)
+        lo, hi = np.percentile(sums, [2.5, 97.5])
+        minus[m] = {"diff_pp": round(point / len(suites), 1), "ci95_pp": [round(float(lo), 1), round(float(hi), 1)]}
+    out["log_sum_minus"] = minus
+    return out
+
+
+def _service_of(suite: str, node: str) -> str:
+    """The benchmark evaluator's service of a node (RCAEval merges a service with its ``-db`` datastore)."""
+    return node.split("_")[0].replace("-db", "") if suite in RCAEVAL else node
+
+
+def fault_free_agreement(R, results_root, suites=HELDOUT) -> OrderedDict:
+    """A check that needs no labels: does the service that a rule ranks first at the fault equal the service that the
+    same rule ranks first in the incident's fault-free windows (``controls.jsonl``, ``null``; per node the mean over
+    the windows, ties by name)? Reported per suite for the log sum and the maximum: incidents where the two agree, and
+    Top-1 among the incidents where they agree and where they differ."""
+    out = OrderedDict()
+    for s in suites:
+        C = records.load(results_root, s, "controls")
+        row = OrderedDict()
+        for m, j in ((V11, 1), ("agg:max", 2)):
+            agree = agree_hit = differ_hit = 0
+            for r in R[s]:
+                nodes = C[r["case"]]["null"]["nodes"]
+                score = {n: v[j] for n, v in nodes.items()}
+                best = None
+                if score and max(score.values()) > 0:
+                    best = _service_of(s, min(score, key=lambda n: (-round(score[n], 12), n)))
+                same = best is not None and not r.get("abstain") and best == r["top"].get(m)
+                agree += same
+                if same:
+                    agree_hit += hit(r, m)
+                else:
+                    differ_hit += hit(r, m)
+            row[m] = {"incidents": len(R[s]), "agree": agree, "top1_where_agree": agree_hit,
+                      "top1_where_differ": differ_hit}
+        out[s] = row
+    return out
 
 
 def holm(pvalues: list) -> list:
@@ -416,7 +486,7 @@ def by_fault(R):
 def operator_alone(R):
     """The aggregation operator alone: the log-compressed sum against the maximum of the same series scores, per
     held-out suite, on the robust (v1.1 against v1) and on the standard-deviation scale (90th-percentile statistic
-    both), and pooled. Descriptive except the two RE1 / RE3 comparisons of the confirmatory family."""
+    both), and pooled. Descriptive; the RE1 and RE3 comparisons on the robust scale were planned as secondary."""
     out = OrderedDict()
     pairs = (("mad", V11, "agg:max"), ("sd", "fact:std-p90-logsum", "fact:std-p90-max"))
     for s in HELDOUT:
@@ -681,17 +751,22 @@ def compute(results_root, recorded_root=None) -> OrderedDict:
     out["n"] = {s: len(R[s]) for s in ALL_SUITES}
     out["main"] = main_table(R, None)
     out["recorded"] = recorded_rows(recorded_root, R)
-    # confirmatory family
-    conf = []
-    for s, m in CONFIRMATORY:
+    # the four primary comparisons (planned) and the planned secondary comparison with the maximum
+    prim = []
+    for s, m in PRIMARY:
         p = paired(R[s], V11, m)
-        conf.append(dict(suite=s, comparator=m, **p))
-    adj = holm([c["p_signflip"] for c in conf])
-    for c, a in zip(conf, adj):
-        c["p_holm"] = a
+        prim.append(dict(suite=s, comparator=m, **p))
+    adj = holm([c["p_signflip"] for c in prim])
+    for c, a in zip(prim, adj):
         c["p_signflip"] = round(c["p_signflip"], 6)
         c["p_holm"] = round(a, 6)
-    out["confirmatory"] = conf
+    out["primary"] = prim
+    sec = []
+    for s, m in OPERATOR_PLANNED:
+        p = paired(R[s], V11, m)
+        p["p_signflip"] = round(p["p_signflip"], 6)
+        sec.append(dict(suite=s, comparator=m, **p))
+    out["operator_planned"] = sec
     # descriptive paired differences on every held-out suite
     desc = OrderedDict()
     for s in HELDOUT:
@@ -741,6 +816,10 @@ def compute(results_root, recorded_root=None) -> OrderedDict:
     out["nezha_reference"] = nezha_reference(R)
     out["controls"] = controls_summary(R, results_root)
     out["timing"] = timing_summary(results_root)
+    out["suite_average"] = suite_average(R)
+    out["suite_average_rcaeval"] = suite_average(R, suites=("RE1", "RE3", "H2"))
+    out["suite_average_independent"] = suite_average(R, suites=("PS", "NZ"))
+    out["fault_free_agreement"] = fault_free_agreement(R, results_root)
     return out
 
 
@@ -766,12 +845,30 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
     n["H2 lead over full TORAI"] = [a["paired"]["H2"]["rec:torai"]["diff"], a["paired"]["H2"]["rec:torai"]["ci95"]]
     n["pooled Top-1 log sum"] = a["pooled_heldout_top1"][V11]
     n["pooled leads [diff, ci]"] = {k: [v["diff"], v["ci95"]] for k, v in a["pooled_heldout"].items()}
-    n["Table 4"] = [[c["suite"], c["comparator"], c["diff"], c["ci95"], [c["a_only"], c["b_only"]],
-                     round(c["p_signflip"], 4), round(c["p_holm"], 3)] for c in a["confirmatory"]]
-    n["Table 5"] = {k: [v[s] for s in ("H1", "RE1", "RE3", "H2", "PS", "NZ")] + [agg["_pooled_heldout"][k]]
+    n["Table 5 primary comparisons: suite, comparator, difference, 95% and 99% intervals, gained / lost, "
+      "sign-flip p, Holm p over the four"] = [
+        [c["suite"], c["comparator"], c["diff"], c["ci95"], c["ci99"], [c["a_only"], c["b_only"]],
+         round(c["p_signflip"], 4), round(c["p_holm"], 4)] for c in a["primary"]]
+    n["Table 4 operator, planned secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, "
+      "unadjusted sign-flip p"] = [
+        [c["suite"], c["diff"], c["ci95"], [c["a_only"], c["b_only"]], round(c["p_signflip"], 4)]
+        for c in a["operator_planned"]]
+    n["Table 6"] = {k: [v[s] for s in ("H1", "RE1", "RE3", "H2", "PS", "NZ")] + [agg["_pooled_heldout"][k]]
                     for k, v in agg.items() if not k.startswith(("_", "cmp:"))}
     n["log sum position among the twelve"] = agg["_logsum_position_among_12"]
-    n["Table 6"] = {k: [v[s] for s in ("RE1", "RE3", "H2", "PS", "NZ")] for k, v in fac.items()}
+    n["Table 7"] = {k: [v[s] for s in ("RE1", "RE3", "H2", "PS", "NZ")] for k, v in fac.items()}
+    for key, label in (("suite_average", "five held-out suites"), ("suite_average_rcaeval", "RCAEval held-out suites"),
+                       ("suite_average_independent", "PetShop and Nezha")):
+        sa = a[key]
+        n["suite average, %s: Top-1 %% (log sum, maximum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert "
+          "count)" % label] = list(sa["top1_percent"].values())
+        n["suite average, %s: log sum minus method, percentage points [ci]" % label] = [
+            [v["diff_pp"], v["ci95_pp"]] for v in sa["log_sum_minus"].values()]
+    ff = a["fault_free_agreement"]
+    n["fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; "
+      "the same for the maximum"] = OrderedDict(
+        (s, [[v[m]["agree"], v[m]["top1_where_agree"], v[m]["top1_where_differ"]] for m in (V11, "agg:max")])
+        for s, v in ff.items())
     R5 = {s: load_study(results_root, s) for s in HELDOUT}
     common = [k for k in R5["RE1"][0]["ranks"] if all(k in R5[s][0]["ranks"] for s in HELDOUT)]
     pooled_all = sorted(((sum(topk(R5[s], k) for s in HELDOUT), k) for k in common), reverse=True)
@@ -857,7 +954,7 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
                                                   ("agg:max", "cmp:nsigma", "cmp:baro", "cmp:torai_stage",
                                                    "cmp:simplerca")}
     # Section 5.2
-    conf = {(c["suite"], c["comparator"]): c for c in a["confirmatory"]}
+    conf = {(c["suite"], c["comparator"]): c for c in a["primary"] + a["operator_planned"]}
     n["RE3 clusters for / against (maximum, N-Sigma); clusters"] = [
         [conf[("RE3", k)]["clusters_for"], conf[("RE3", k)]["clusters_against"]] for k in ("agg:max", "cmp:nsigma")] \
         + [conf[("RE3", "agg:max")]["clusters"]]
@@ -1078,14 +1175,11 @@ EXPECTED = OrderedDict([
       'cmp:baro': [135, [106, 164]],
       'cmp:torai_stage': [29, [1, 56]],
       'cmp:simplerca': [17, [-1, 36]]}),
-    ("Table 4",
-     [['RE1', 'agg:max', 18, [1, 36], [36, 18], 0.0653, 0.065],
-      ['RE1', 'cmp:nsigma', 41, [19, 62], [64, 23], 0.0006, 0.003],
-      ['RE1', 'cmp:baro', 35, [17, 54], [55, 20], 0.0005, 0.003],
-      ['RE3', 'agg:max', 13, [5, 22], [14, 1], 0.0137, 0.041],
-      ['RE3', 'cmp:nsigma', 12, [4, 21], [13, 1], 0.0234, 0.047],
-      ['RE3', 'cmp:baro', 62, [49, 74], [62, 0], 0.0, 0.0]]),
-    ("Table 5",
+    ('Table 5 primary comparisons: suite, comparator, difference, 95% and 99% intervals, gained / lost, sign-flip p, Holm p over the four',
+     [["RE1", "cmp:nsigma", 41, [19, 62], [12, 69], [64, 23], 0.0006, 0.0015], ["RE1", "cmp:baro", 35, [17, 54], [12, 60], [55, 20], 0.0005, 0.0015], ["RE3", "cmp:nsigma", 12, [4, 21], [1, 24], [13, 1], 0.0234, 0.0234], ["RE3", "cmp:baro", 62, [49, 74], [45, 78], [62, 0], 0.0, 0.0]]),
+    ('Table 4 operator, planned secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, unadjusted sign-flip p',
+     [["RE1", 18, [1, 36], [36, 18], 0.0653], ["RE3", 13, [5, 22], [14, 1], 0.0137]]),
+    ("Table 6",
      {'max': [133, 285, 75, 73, 12, 24, 469],
       'sum_top2': [135, 295, 79, 74, 10, 26, 484],
       'sum': [136, 296, 79, 75, 8, 27, 485],
@@ -1102,7 +1196,7 @@ EXPECTED = OrderedDict([
       'lse': [130, 268, 78, 74, 12, 25, 457],
       'count_usable': [10, 48, 15, 6, 0, 8, 77]}),
     ("log sum position among the twelve", {'H1': 1, 'RE1': 2, 'RE3': 1, 'H2': 2, 'PS': 9, 'NZ': 3}),
-    ("Table 6",
+    ("Table 7",
      {'fact:std-max-max': [262, 76, 72, 13, 37],
       'fact:std-max-logsum': [300, 87, 68, 12, 35],
       'fact:std-p90-max': [283, 79, 71, 13, 38],
@@ -1345,6 +1439,20 @@ EXPECTED = OrderedDict([
     ("RE1 memory faults: lowest and highest Top-1 of the six methods / incidents", [68, 75, 75]),
     ("RE3 fault types ranked first in every incident by the log sum", ['f1', 'f3', 'f4']),
     ("PetShop error issues: best Top-1 of any rule or comparator / issues", [5, 32]),
+    ('suite average, five held-out suites: Top-1 % (log sum, maximum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)',
+     [59.6, 56.4, 60.4, 36.3, 59.9, 57.8, 51.1]),
+    ('suite average, five held-out suites: log sum minus method, percentage points [ci]',
+     [[3.3, [-1.9, 7.7]], [-0.7, [-6.3, 4.4]], [23.4, [17.4, 28.7]], [-0.3, [-5.1, 4.1]], [1.9, [-1.1, 5.1]], [8.5, [5.5, 11.7]]]),
+    ('suite average, RCAEval held-out suites: Top-1 % (log sum, maximum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)',
+     [88.0, 80.1, 78.1, 45.7, 79.0, 83.9, 70.4]),
+    ('suite average, RCAEval held-out suites: log sum minus method, percentage points [ci]',
+     [[7.9, [3.6, 12.5]], [9.9, [5.3, 14.8]], [42.4, [35.8, 48.8]], [9.0, [4.6, 13.8]], [4.1, [0.6, 7.7]], [17.6, [13.4, 22.1]]]),
+    ('suite average, PetShop and Nezha: Top-1 % (log sum, maximum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)',
+     [17.1, 20.7, 33.8, 22.2, 31.3, 18.6, 22.2]),
+    ('suite average, PetShop and Nezha: log sum minus method, percentage points [ci]',
+     [[-3.6, [-14.9, 4.5]], [-16.7, [-29.0, -5.9]], [-5.1, [-16.4, 2.5]], [-14.3, [-24.1, -5.4]], [-1.5, [-6.7, 4.4]], [-5.2, [-9.3, -1.5]]]),
+    ('fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; the same for the maximum',
+     {"RE1": [[25, 24, 279], [19, 17, 268]], "RE3": [[2, 2, 86], [2, 1, 74]], "H2": [[1, 1, 76], [2, 1, 72]], "PS": [[28, 0, 3], [7, 0, 12]], "NZ": [[22, 6, 24], [27, 4, 20]]}),
 ])
 
 
