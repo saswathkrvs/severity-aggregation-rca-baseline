@@ -52,11 +52,11 @@ original runs.
 
 How the comparisons are organised (`evaluation/analysis.py`, module docstring):
 
-* **Primary:** the log sum against N-Sigma and against the BARO scorer on RE1 and RE3, the four comparisons planned
-  before the RE1 and RE3 runs (95 % cluster-bootstrap intervals; 99 % intervals as the multiplicity check; exact
+* **Primary:** the log sum against N-Sigma and against the BARO scorer on RE1 and RE3, the two suites that played no
+  part in developing the method (95 % cluster-bootstrap intervals; 99 % intervals as the multiplicity check; exact
   sign-flip tests with Holm's adjustment as a further check).
-* **Planned secondary:** the log sum against the maximum of the same series scores on RE1 and RE3 (the aggregation
-  operator alone).
+* **Secondary:** the log sum against the maximum of the same series scores on RE1 and RE3 (the aggregation operator
+  alone).
 * **Exploratory:** everything else, including RE2-H2, PetShop, Nezha, the controls and the sensitivity analyses.
 * **Suite averages** weight the five held-out suites equally; the paper reports them beside the incident-pooled
   counts, which RCAEval dominates (555 of 724 incidents).

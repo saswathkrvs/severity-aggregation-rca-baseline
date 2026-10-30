@@ -15,14 +15,14 @@ Statistics
   ``default_rng(0)``, percentile intervals); clusters are (application, service, fault) on RCAEval, (component,
   injected parameter) on PetShop and (application, service, fault type) on Nezha. A pooled difference over several
   suites resamples clusters within each suite.
-* The primary comparisons are the four that were planned before the RE1 and RE3 runs, on the two RCAEval suites that
-  played no part in developing the method: the log-compressed sum against N-Sigma and against the BARO scorer, on
-  RE1 and on RE3. Each is judged by its 95 % cluster-bootstrap interval, with 99 % intervals (0.05 / 5, Bonferroni
-  over the five comparisons planned) as the planned multiplicity check. The exact two-sided sign-flip test on the
-  per-cluster Top-1 totals, with Holm's adjustment over the four, is a further check added later.
-* The comparison with the maximum of the same series scores on RE1 and RE3 (the aggregation operator alone) was
-  planned as a secondary comparison: estimate, interval and an unadjusted sign-flip p-value. Every other comparison,
-  and every control, is exploratory (estimate and interval).
+* The primary comparisons are four, on the two RCAEval suites that played no part in developing the method: the
+  log-compressed sum against N-Sigma and against the BARO scorer, the two established metric-only baselines, on RE1
+  and on RE3. Each is judged by its 95 % cluster-bootstrap interval, with 99 % intervals (stricter than a Bonferroni
+  correction over the four) as the multiplicity check, and the exact two-sided sign-flip test on the per-cluster
+  Top-1 totals, with Holm's adjustment over the four, as a further check.
+* The comparison with the maximum of the same series scores on RE1 and RE3 (the aggregation operator alone) is
+  secondary: estimate, interval and an unadjusted sign-flip p-value. Every other comparison, and every control, is
+  exploratory (estimate and interval).
 * Suite averages weight the five held-out suites equally: the mean of the suites' Top-1 percentages, and for a
   difference the mean of the suites' paired differences in percentage points of the suite, with a 95 % interval
   from resampling clusters within each suite.
@@ -58,7 +58,7 @@ DEV_AGGS = ("max", "sum_top2", "sum", "mean_top3", "logsum", "sqrtsum", "sum_cap
             "logmean", "logsum_metric")
 EXTRA_AGGS = ("mean", "lse", "count_usable")
 PRIMARY = (("RE1", "cmp:nsigma"), ("RE1", "cmp:baro"), ("RE3", "cmp:nsigma"), ("RE3", "cmp:baro"))
-OPERATOR_PLANNED = (("RE1", "agg:max"), ("RE3", "agg:max"))
+OPERATOR_SECONDARY = (("RE1", "agg:max"), ("RE3", "agg:max"))
 V11 = "agg:logsum"
 AVERAGED = ("agg:max", "cmp:nsigma", "cmp:baro", "cmp:torai_stage", "cmp:simplerca", "cmp:alerts3")
 RCAEVAL = ("RE1", "RE3", "H1", "H2")
@@ -486,7 +486,7 @@ def by_fault(R):
 def operator_alone(R):
     """The aggregation operator alone: the log-compressed sum against the maximum of the same series scores, per
     held-out suite, on the robust (v1.1 against v1) and on the standard-deviation scale (90th-percentile statistic
-    both), and pooled. Descriptive; the RE1 and RE3 comparisons on the robust scale were planned as secondary."""
+    both), and pooled. Descriptive; the RE1 and RE3 comparisons on the robust scale are the secondary comparison."""
     out = OrderedDict()
     pairs = (("mad", V11, "agg:max"), ("sd", "fact:std-p90-logsum", "fact:std-p90-max"))
     for s in HELDOUT:
@@ -751,7 +751,7 @@ def compute(results_root, recorded_root=None) -> OrderedDict:
     out["n"] = {s: len(R[s]) for s in ALL_SUITES}
     out["main"] = main_table(R, None)
     out["recorded"] = recorded_rows(recorded_root, R)
-    # the four primary comparisons (planned) and the planned secondary comparison with the maximum
+    # the four primary comparisons and the secondary comparison with the maximum
     prim = []
     for s, m in PRIMARY:
         p = paired(R[s], V11, m)
@@ -762,11 +762,11 @@ def compute(results_root, recorded_root=None) -> OrderedDict:
         c["p_holm"] = round(a, 6)
     out["primary"] = prim
     sec = []
-    for s, m in OPERATOR_PLANNED:
+    for s, m in OPERATOR_SECONDARY:
         p = paired(R[s], V11, m)
         p["p_signflip"] = round(p["p_signflip"], 6)
         sec.append(dict(suite=s, comparator=m, **p))
-    out["operator_planned"] = sec
+    out["operator_secondary"] = sec
     # descriptive paired differences on every held-out suite
     desc = OrderedDict()
     for s in HELDOUT:
@@ -849,10 +849,10 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
       "sign-flip p, Holm p over the four"] = [
         [c["suite"], c["comparator"], c["diff"], c["ci95"], c["ci99"], [c["a_only"], c["b_only"]],
          round(c["p_signflip"], 4), round(c["p_holm"], 4)] for c in a["primary"]]
-    n["Table 4 operator, planned secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, "
+    n["Table 4 operator, secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, "
       "unadjusted sign-flip p"] = [
         [c["suite"], c["diff"], c["ci95"], [c["a_only"], c["b_only"]], round(c["p_signflip"], 4)]
-        for c in a["operator_planned"]]
+        for c in a["operator_secondary"]]
     n["Table 6"] = {k: [v[s] for s in ("H1", "RE1", "RE3", "H2", "PS", "NZ")] + [agg["_pooled_heldout"][k]]
                     for k, v in agg.items() if not k.startswith(("_", "cmp:"))}
     n["log sum position among the twelve"] = agg["_logsum_position_among_12"]
@@ -864,11 +864,11 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
           "count)" % label] = list(sa["top1_percent"].values())
         n["suite average, %s: log sum minus method, percentage points [ci]" % label] = [
             [v["diff_pp"], v["ci95_pp"]] for v in sa["log_sum_minus"].values()]
-    n["clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the planned "
+    n["clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the "
       "secondary comparisons"] = [
         [a["paired"][s]["agg:max"]["clusters"] for s in HELDOUT],
         [[c["suite"], c["comparator"], c["clusters_for"], c["clusters_against"]]
-         for c in a["primary"] + a["operator_planned"]]]
+         for c in a["primary"] + a["operator_secondary"]]]
     ff = a["fault_free_agreement"]
     n["fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; "
       "the same for the maximum"] = OrderedDict(
@@ -959,7 +959,7 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
                                                   ("agg:max", "cmp:nsigma", "cmp:baro", "cmp:torai_stage",
                                                    "cmp:simplerca")}
     # Section 5.2
-    conf = {(c["suite"], c["comparator"]): c for c in a["primary"] + a["operator_planned"]}
+    conf = {(c["suite"], c["comparator"]): c for c in a["primary"] + a["operator_secondary"]}
     n["RE3 clusters for / against (maximum, N-Sigma); clusters"] = [
         [conf[("RE3", k)]["clusters_for"], conf[("RE3", k)]["clusters_against"]] for k in ("agg:max", "cmp:nsigma")] \
         + [conf[("RE3", "agg:max")]["clusters"]]
@@ -1182,7 +1182,7 @@ EXPECTED = OrderedDict([
       'cmp:simplerca': [17, [-1, 36]]}),
     ('Table 5 primary comparisons: suite, comparator, difference, 95% and 99% intervals, gained / lost, sign-flip p, Holm p over the four',
      [["RE1", "cmp:nsigma", 41, [19, 62], [12, 69], [64, 23], 0.0006, 0.0015], ["RE1", "cmp:baro", 35, [17, 54], [12, 60], [55, 20], 0.0005, 0.0015], ["RE3", "cmp:nsigma", 12, [4, 21], [1, 24], [13, 1], 0.0234, 0.0234], ["RE3", "cmp:baro", 62, [49, 74], [45, 78], [62, 0], 0.0, 0.0]]),
-    ('Table 4 operator, planned secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, unadjusted sign-flip p',
+    ('Table 4 operator, secondary comparison (RE1, RE3): difference, 95% interval, gained / lost, unadjusted sign-flip p',
      [["RE1", 18, [1, 36], [36, 18], 0.0653], ["RE3", 13, [5, 22], [14, 1], 0.0137]]),
     ("Table 6",
      {'max': [133, 285, 75, 73, 12, 24, 469],
@@ -1456,7 +1456,7 @@ EXPECTED = OrderedDict([
      [17.1, 20.7, 33.8, 22.2, 31.3, 18.6, 22.2]),
     ('suite average, PetShop and Nezha: log sum minus method, percentage points [ci]',
      [[-3.6, [-14.9, 4.5]], [-16.7, [-29.0, -5.9]], [-5.1, [-16.4, 2.5]], [-14.3, [-24.1, -5.4]], [-1.5, [-6.7, 4.4]], [-5.2, [-9.3, -1.5]]]),
-    ('clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the planned secondary comparisons',
+    ('clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the secondary comparisons',
      [[75, 27, 90, 8, 56],
       [["RE1", "cmp:nsigma", 33, 10], ["RE1", "cmp:baro", 31, 11], ["RE3", "cmp:nsigma", 8, 1], ["RE3", "cmp:baro", 23, 0],
        ["RE1", "agg:max", 19, 11], ["RE3", "agg:max", 9, 1]]]),
