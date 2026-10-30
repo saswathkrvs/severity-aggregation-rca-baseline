@@ -864,6 +864,11 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
           "count)" % label] = list(sa["top1_percent"].values())
         n["suite average, %s: log sum minus method, percentage points [ci]" % label] = [
             [v["diff_pp"], v["ci95_pp"]] for v in sa["log_sum_minus"].values()]
+    n["clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the planned "
+      "secondary comparisons"] = [
+        [a["paired"][s]["agg:max"]["clusters"] for s in HELDOUT],
+        [[c["suite"], c["comparator"], c["clusters_for"], c["clusters_against"]]
+         for c in a["primary"] + a["operator_planned"]]]
     ff = a["fault_free_agreement"]
     n["fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; "
       "the same for the maximum"] = OrderedDict(
@@ -1451,6 +1456,10 @@ EXPECTED = OrderedDict([
      [17.1, 20.7, 33.8, 22.2, 31.3, 18.6, 22.2]),
     ('suite average, PetShop and Nezha: log sum minus method, percentage points [ci]',
      [[-3.6, [-14.9, 4.5]], [-16.7, [-29.0, -5.9]], [-5.1, [-16.4, 2.5]], [-14.3, [-24.1, -5.4]], [-1.5, [-6.7, 4.4]], [-5.2, [-9.3, -1.5]]]),
+    ('clusters per held-out suite (RE1, RE3, H2, PS, NZ); clusters for / against in the primary and the planned secondary comparisons',
+     [[75, 27, 90, 8, 56],
+      [["RE1", "cmp:nsigma", 33, 10], ["RE1", "cmp:baro", 31, 11], ["RE3", "cmp:nsigma", 8, 1], ["RE3", "cmp:baro", 23, 0],
+       ["RE1", "agg:max", 19, 11], ["RE3", "agg:max", 9, 1]]]),
     ('fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; the same for the maximum',
      {"RE1": [[25, 24, 279], [19, 17, 268]], "RE3": [[2, 2, 86], [2, 1, 74]], "H2": [[1, 1, 76], [2, 1, 72]], "PS": [[28, 0, 3], [7, 0, 12]], "NZ": [[22, 6, 24], [27, 4, 20]]}),
 ])

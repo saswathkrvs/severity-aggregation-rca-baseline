@@ -63,8 +63,6 @@ How the comparisons are organised (`evaluation/analysis.py`, module docstring):
 * **Fault-free agreement**, a check that needs no labels: how often the service a rule ranks first at the fault is
   the service it ranks first in the incident's fault-free windows.
 
-The paper refers to the release tagged `v1.0`: `git checkout v1.0` gives exactly the code and records it reports.
-
 ## Rerun the methods
 
 Data (not redistributed here):
