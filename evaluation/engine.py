@@ -200,7 +200,7 @@ def _series_stats_dense(N: np.ndarray, A: np.ndarray) -> Dict[str, np.ndarray]:
     mad = np.median(np.abs(N - med), axis=0)
     sd = np.std(N, axis=0)
     # A spread below 1e-9 of the window's largest absolute value is floating-point noise, not variation: such a
-    # MAD counts as zero (SD fallback), and such an SD makes the series constant. (This occurs only on Nezha.)
+    # MAD counts as zero (SD fallback), and such an SD makes the series constant.
     tiny = SPREAD_TOLERANCE * np.max(np.abs(N), axis=0)
     zero_mad = mad <= tiny
     for j in np.flatnonzero(zero_mad & ~const):   # the ranker's fallback, computed on the column alone

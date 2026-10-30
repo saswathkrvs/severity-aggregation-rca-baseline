@@ -6,8 +6,8 @@ re-implementation for development experiments. It is **not** a reproduction
 of either paper's code or published results.
 
 The rules below were fixed on 18 development incidents. The tolerance in
-rule 3 only treats floating-point noise as zero spread (it matters for
-Nezha's latency series) and changes no RCAEval or PetShop result.
+rule 3 only treats floating-point noise as zero spread; it matters for
+Nezha's latency series (``results/NZ/study_notolerance.jsonl``).
 
 Pipeline and rules
 ------------------

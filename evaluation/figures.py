@@ -39,7 +39,7 @@ def forest(res, out):
     suites = ["RE1", "RE3", "H2", "PS", "NZ"]
     comps = [("agg:max", "maximum aggregation", BLUE, "o"), ("cmp:nsigma", "N-Sigma", ORANGE, "s"),
              ("cmp:baro", "BARO scorer", AQUA, "D"), ("cmp:simplerca", "SimpleRCA metric rules", YELLOW, "^")]
-    fig, ax = plt.subplots(figsize=(3.4, 2.9))
+    fig, ax = plt.subplots(figsize=(6.3, 3.0))
     y = 0.0
     yticks, ylabels = [], []
     for s in reversed(suites):
@@ -62,8 +62,8 @@ def forest(res, out):
     ax.set_axisbelow(True)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False, handletextpad=0.3,
-              columnspacing=0.8)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False, handletextpad=0.3,
+              columnspacing=1.2)
     _save(fig, out, "fig_forest")
     plt.close(fig)
 
@@ -89,7 +89,7 @@ def robustness(res, out):
                     label=label, mec=color if ls != "-" else "white", mfc="white" if ls != "-" else color, mew=0.7)
         ax.set_xticks([-120, -60, 0, 60, 120])
         ax.set_xlabel("onset error (s)")
-        ax.set_title("(%s) %s, onset error" % ("ac"[col], s), loc="left", color=INK)
+        ax.set_title("(%s) %s: onset" % ("ac"[col], s), loc="left", color=INK)
         ax = axes[2 * col + 1]
         for m, label, color, marker, ls in methods:
             vals = [sens["win:300-%d" % x][m] if x != 300 else sens["default"][m] for x in lengths]
@@ -97,8 +97,8 @@ def robustness(res, out):
                     mec=color if ls != "-" else "white", mfc="white" if ls != "-" else color, mew=0.7)
         ax.set_xticks(lengths)
         ax.set_xlabel("anomalous window (s)")
-        ax.set_title("(%s) %s, window length" % ("bd"[col], s), loc="left", color=INK)
-    axes[0].set_ylabel("Top-1 (% of cases)")
+        ax.set_title("(%s) %s: window" % ("bd"[col], s), loc="left", color=INK)
+    axes[0].set_ylabel("Top-1 (% of incidents)")
     for ax in axes:
         ax.grid(color=GRID, lw=0.5)
         ax.set_axisbelow(True)
@@ -158,7 +158,122 @@ def mechanism(res, results_root, out):
     plt.close(fig)
 
 
+REF_LINES = [("mad_logsum", "log-compressed sum, MAD scale (v1.1)", BLUE, "o", "-"),
+             ("sd_logsum", "log-compressed sum, standard-deviation scale", MAGENTA, "o", (0, (3.5, 1.8))),
+             ("mad_max", "maximum, MAD scale (v1)", ORANGE, "s", "-"),
+             ("sd_max", "maximum, standard-deviation scale", VIOLET, "v", (0, (1.2, 1.4))),
+             ("sd_dc_max", "N-Sigma's configuration (standard-deviation scale, maxima)", AQUA, "D", "-")]
+
+
+def reference_length(res, out):
+    """Top-1 (share of the suite) against the length of the normal window, everything else fixed, per held-out
+    suite (``evaluation.controls``, ``reflen``). RCAEval: the last L seconds before the onset (dotted line: the
+    study's 300 s). PetShop: L contiguous 5-minute rows of the fault-free period. Nezha, offline: the L fault-free
+    minutes of the day nearest the onset on either side, ending with the study's day-wide reference; Nezha, real
+    time: the L most recent fault-free minutes before the onset."""
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator
+    _style(plt)
+    day = 1300
+    panels = [("RE1", "(a) RE1", "seconds before the onset", None),
+              ("RE3", "(b) RE3", "seconds before the onset", None),
+              ("H2", "(c) RE2-H2", "seconds before the onset", None),
+              ("PS", "(d) PetShop", "5-minute rows of the fault-free period", None),
+              ("NZ", "(e) Nezha, offline reference", "fault-free minutes nearest the onset", "nearest:"),
+              ("NZ", "(f) Nezha, real-time reference", "fault-free minutes before the onset", "preonset:")]
+    fig, axes = plt.subplots(2, 3, figsize=(6.6, 4.8), sharey=True)
+    for ax, (s, title, unit, prefix) in zip(axes.flat, panels):
+        ref = res["controls"][s]["reflen"]
+        n = res["n"][s]
+        if prefix:
+            keys = [k for k in ref if k.startswith(prefix)] + (["day"] if prefix == "nearest:" else [])
+            xs = [day if k == "day" else int(k.split(":")[1]) for k in keys]
+            labels = ["day" if k == "day" else k.split(":")[1] for k in keys]
+        else:
+            keys = list(ref)
+            xs = [int(k) for k in keys]
+            labels = [str(x) for x in xs]
+        for m, label, color, marker, ls in REF_LINES:
+            ax.plot(xs, [100.0 * ref[k][m] / n for k in keys], color=color, marker=marker, ms=3.4, lw=1.3, ls=ls,
+                    label=label, mec=color if ls != "-" else "white", mfc="white" if ls != "-" else color, mew=0.7)
+        if s in ("RE1", "RE3", "H2"):
+            ax.axvline(300, color=MUTED, lw=0.7, ls=":")
+            ax.text(300, 3, " study", color=MUTED, fontsize=6.5, ha="left", va="bottom")
+        ax.set_xscale("log")
+        ax.xaxis.set_major_locator(FixedLocator(xs))
+        ax.xaxis.set_major_formatter(FixedFormatter(labels))
+        ax.xaxis.set_minor_locator(NullLocator())
+        ax.tick_params(axis="x", labelsize=6.5)
+        ax.set_title(title, loc="left", color=INK)
+        ax.set_xlabel(unit, fontsize=7)
+        ax.set_ylim(0, 100)
+        ax.grid(color=GRID, lw=0.5)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Top-1 (% of incidents)")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False,
+               handlelength=3.0, columnspacing=1.5)
+    fig.tight_layout(rect=(0, 0, 1, 0.885), h_pad=1.2)
+    _save(fig, out, "fig_reference")
+    plt.close(fig)
+
+
+FAULT_LABEL = {"cpu": "CPU", "mem": "memory", "disk": "disk", "delay": "delay", "loss": "packet loss",
+               "socket": "socket", "f1": "code fault F1", "f2": "code fault F2", "f3": "code fault F3",
+               "f4": "code fault F4", "f5": "code fault F5", "error": "error", "overload": "overload",
+               "cpu_consumed": "CPU consumption", "cpu_contention": "CPU contention", "exception": "exception",
+               "network_delay": "network delay", "return": "return value"}
+FAULT_LINES = [("v11", "log-compressed sum (v1.1)", BLUE, "o"), ("v1", "maximum (v1)", ORANGE, "s"),
+               ("nsigma", "N-Sigma", AQUA, "D"), ("torai_stage", "TORAI severity stage", VIOLET, "v"),
+               ("simplerca", "SimpleRCA metric rules", YELLOW, "^")]
+
+
+def by_fault(res, out):
+    """Top-1 (share of the fault type's incidents) per held-out suite and fault type."""
+    import matplotlib.pyplot as plt
+    _style(plt)
+    panels = [("RE1", "RE3"), ("H2", "PS", "NZ")]
+    fig = plt.figure(figsize=(7.1, 3.7))
+    boxes = [(0.165, 0.11, 0.31, 0.78), (0.69, 0.11, 0.295, 0.78)]
+    for box, suites in zip(boxes, panels):
+        ax = fig.add_axes(box)
+        rows = []
+        for s in suites:
+            for f in [f for f in res["by_fault"][s] if not f.startswith("_")]:
+                rows.append((s, f, res["by_fault"][s][f]))
+        y = np.arange(len(rows))[::-1]
+        for (m, label, color, marker), off in zip(FAULT_LINES, np.linspace(-0.26, 0.26, len(FAULT_LINES))):
+            ax.scatter([100.0 * r[2][m] / r[2]["n"] for r in rows], y + off, s=13, color=color, marker=marker,
+                       edgecolors="white", linewidths=0.4, label=label, zorder=3)
+        ax.set_yticks(y)
+        ax.set_yticklabels(["%s %s (%d)" % (SUITE_LABEL[s], FAULT_LABEL.get(f, f), r["n"]) for s, f, r in rows],
+                           fontsize=6.8)
+        for i in range(1, len(rows)):
+            if rows[i][0] != rows[i - 1][0]:
+                ax.axhline(y[i] + 0.5, color=MUTED, lw=0.6)
+        ax.set_xlim(-3, 103)
+        ax.set_ylim(-0.6, len(rows) - 0.4)
+        ax.set_xticks([0, 25, 50, 75, 100])
+        ax.set_xlabel("Top-1 (% of the fault type's incidents)")
+        ax.grid(axis="x", color=GRID, lw=0.5)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+        if suites[0] == "RE1":
+            handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=5, frameon=False,
+               columnspacing=1.2, handletextpad=0.3)
+    _save(fig, out, "fig_faults")
+    plt.close(fig)
+
+
 def make_all(results_root, out, res):
     forest(res, out)
     robustness(res, out)
     mechanism(res, results_root, out)
+    if res.get("controls"):
+        reference_length(res, out)
+    by_fault(res, out)

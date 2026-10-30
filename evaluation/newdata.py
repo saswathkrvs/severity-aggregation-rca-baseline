@@ -4,18 +4,21 @@ Both protocols were fixed from the datasets' documentation before any method was
 receives the same series and windows.
 
 **PetShop** (Hardt et al., CLeaR 2024; https://github.com/amazon-science/petshop-root-cause-analysis, dataset
-CC BY 4.0). A pet-adoption application on AWS with 41 components (containers, Lambda functions, DynamoDB, SQS, load
-balancers, remote endpoints). 68 injected issues in four traffic scenarios (``low_traffic``, ``high_traffic``,
+CC BY 4.0). A pet-adoption application on AWS with 39–41 components per scenario (containers, Lambda functions,
+DynamoDB, SQS, load balancers, remote endpoints). 68 injected issues in four traffic scenarios (``low_traffic``,
+``high_traffic``,
 ``temporal_traffic1``, ``temporal_traffic2``; the ``train`` and ``test`` folders of each are pooled, as the
 dataset's own ``evaluate`` does). Metrics are 5-minute CloudWatch aggregates: latency (Average, p50, p90, p95, p99),
 requests (Sum) and availability (Average) per component, i.e. seven series for every component.
 
-* Normal window: the scenario's ``noissue`` metrics (589 rows); anomalous window: the issue's own ``metrics.csv``
+* Normal window: the scenario's ``noissue`` metrics (589 rows in the steady-traffic scenarios, 1,652 in the
+  temporal ones); anomalous window: the issue's own ``metrics.csv``
   (5 rows), as in the dataset's ``evaluate``.
 * Orientation: availability is used as unavailability (100 - availability), so that a degradation is an upward
   deviation for every series; no other transformation.
 * Missing values are skipped: each series uses its finite observations in each window.
-* Label: ``target.json`` ``root_cause.node``; candidates: all 41 components; evaluation at component level.
+* Label: ``target.json`` ``root_cause.node``; candidates: all components of the scenario (39–41); evaluation at
+  component level.
 * Cluster for the bootstrap: (root-cause component, the injected parameter, e.g. ``searchdelay``).
 
 **Nezha** (Yu et al., ESEC/FSE 2023; https://github.com/IntelligentDDS/Nezha, ``rca_data``). Online Boutique
@@ -32,8 +35,8 @@ are sampled once a minute.
   injection T of that day (hours of one-minute samples; Nezha builds its own fault-free reference from the same
   day's files). Faults are injected about every eight minutes and their effects last several minutes, and on
   some days the files start only two minutes before the first injection, so a pre-onset window of comparable
-  length does not exist. A local variant, the five most recent fault-free observations before the onset, is
-  reported as a sensitivity analysis (``local:`` methods).
+  length does not exist. A local variant, the five most recent fault-free observations before the onset (fewer
+  where fewer exist), is reported as a sensitivity analysis (``local:`` methods).
 * Missing values are skipped, as for PetShop.
 * Label: the injected pod's service (pod name without its two hash suffixes); candidates: every service with a
   pod metric file that day; cluster: (application, service, fault type).

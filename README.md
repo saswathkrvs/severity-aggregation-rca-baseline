@@ -1,7 +1,7 @@
 # Evidence aggregation for training-free root-cause ranking
 
 Code and per-case results for the paper *Breadth or Peak? Evidence Aggregation in Training-Free Root-Cause
-Ranking across Five Microservice Benchmarks*.
+Ranking across Five Microservice Benchmark Suites*.
 
 The ranker scores every metric (and, where available, trace) series of an incident with a one-sided robust
 statistic — the 90th percentile of the anomalous window's z-scores against the median and MAD of the window
@@ -9,7 +9,11 @@ before the onset — and ranks services by aggregating their series scores. Vers
 service's usable series; version 1 takes the maximum. No training, no graph and no labels are needed. The study
 compares fifteen aggregation rules, a factorial over scale estimator, statistic and aggregation, and external
 comparators on identical inputs, on five suites: RCAEval RE1, RE3 and RE2 (development split H1, held-out split
-H2), PetShop and Nezha.
+H2, the third repetitions of the development scenarios), PetShop and Nezha. Controls examine instrumentation
+density (equal series counts, the fault-free noise floor, a score with that floor subtracted) and the normal window
+(its length varied within each suite; on Nezha also a reference available in real time, before the onset). The
+analysis separates the RCAEval scenarios that occur in development from those that do not, and repeats the choice of
+the aggregation rule with groups of scenarios held out.
 
 ## Contents
 
@@ -21,6 +25,7 @@ H2), PetShop and Nezha.
 | `evaluation/bocpd.py` | BARO's onset detector (multivariate Bayesian online change-point detection), for the full BARO pipeline |
 | `evaluation/newdata.py` | the PetShop and Nezha cases and their windows |
 | `evaluation/study.py` | runs every method and variant on a suite and writes one record per case |
+| `evaluation/controls.py` | the controls: equal series counts, the fault-free noise floor, normal windows of different lengths, the maximum over metric series only; run times of every method under one protocol |
 | `evaluation/analysis.py`, `evaluation/figures.py` | every table, number and figure of the paper, from the records |
 | `evaluation/datasets.py`, `rankers.py`, `comparators.py`, `pinned_runner.py`, `run.py` | the original runs: case discovery and decoding, the in-process rankers, the pinned RCAEval comparators (including RCD, CIRCA, ε-Diagnosis) and TORAI on RE2 |
 | `evaluation/stats.py`, `evaluation/tables.py` | measures and the tables of the original runs |
@@ -28,6 +33,7 @@ H2), PetShop and Nezha.
 | `results/<suite>/study.jsonl` | the study's records (below); suites `RE1`, `RE3`, `H1`, `H2`, `PS` (PetShop), `NZ` (Nezha) |
 | `results/<suite>/bocpd.jsonl` | the BARO pipeline with its own onset (RCAEval suites) |
 | `results/PS/placebo.jsonl`, `results/NZ/study_notolerance.jsonl` | PetShop fault-free windows; Nezha without the spread tolerance |
+| `results/<suite>/controls.jsonl`, `results/<suite>/timing.jsonl` | the controls (held-out suites and RE2-H1); run times (RE1, RE3) |
 | `results/<suite>/<method>.jsonl` | the original runs' records, one per case and method |
 | `tests/` | unit tests, and tests that every published number is reproduced from `results/` |
 
@@ -38,8 +44,10 @@ pip install -r requirements.txt
 python -m evaluation.analysis --check --figures figs
 ```
 
-This recomputes every table and number of the paper from `results/`, compares each with the published value,
-and draws the figures. `python -m evaluation.tables --check` does the same for the tables of the original runs.
+This recomputes the paper's tables and reported results from `results/`, compares each with the published value,
+and draws the figures. `--json analysis.json` also writes everything the analysis computes, including Top-3, Top-5
+and MRR per method, suite and fault type. `python -m evaluation.tables --check` does the same for the tables of the
+original runs.
 `python -m unittest discover -s tests` runs the tests (with `src` on `PYTHONPATH`).
 
 ## Rerun the methods
@@ -67,14 +75,23 @@ python -m evaluation.study --suite NZ --cases <Nezha checkout>
 python -m evaluation.study --suite RE1 --cases prepared/RE1 --bocpd           # likewise RE3, H1, H2
 python -m evaluation.study --suite PS --cases <petshop>/dataset --placebo
 python -m evaluation.study --suite NZ --cases <Nezha checkout> --no-tolerance
+python -m evaluation.controls --suite RE1 --cases prepared/RE1                # likewise RE3
+python -m evaluation.controls --suite H2 --cases <unpacked torai-data>          # likewise H1
+python -m evaluation.controls --suite PS --cases <petshop>/dataset
+python -m evaluation.controls --suite NZ --cases <Nezha checkout>
+python -m evaluation.controls --suite RE1 --cases prepared/RE1 --timing       # likewise RE3
 python -m evaluation.analysis --check --figures figs
 ```
 
 `--validate` compares the study's ranks with the original runs' records of the same methods: the ranker (v1, v1.1
 and its variants) and the re-implemented N-Sigma, BARO scorer and TORAI severity stage give the same rank of the
 labelled service as the recorded runs in every case. Finished cases are skipped, so an interrupted run continues
-where it stopped. Everything is deterministic. One core takes about 3 s per RCAEval case (all variants), well
-under a second per PetShop or Nezha case, and about 1 s per case for the BARO pipeline.
+where it stopped. Everything is deterministic. The recorded study times per case (all variants, field `seconds`)
+have medians of 1.3 to 2.3 s on the RCAEval suites (means 3.1 to 4.5 s), 0.7 s on PetShop and 1.2 s on Nezha
+(mean 2.5 s); the BARO pipeline's onset detection takes a median of 0.2 to 0.3 s per case (`bocpd_seconds`). The
+controls take a median of about 0.5 s per RCAEval case, 15 s per PetShop issue and 4 s per Nezha fault (up to
+about 20 s for the largest Train Ticket faults). Run times depend on the machine: the analysis reads the recorded
+ones (`timing.jsonl`, CPU time from an incident's in-memory windows to its service ranking).
 
 The original runs (`results/<suite>/<method>.jsonl`; RCD, CIRCA, ε-Diagnosis, TORAI and the random order are only
 there) were produced with `evaluation.run` and, for TORAI and BARO on RE2, with RCAEval's own `main.py` through
@@ -107,6 +124,19 @@ Method names:
 | `win:<n>-<a>:<m>`, `shift:<s>:<m>`, `interp:<m>`, `placebo:<m>` | windows, onset shifts, interpolation, pre-fault windows (RCAEval); `m` is `v11`, `v11sd` (the log sum on a standard-deviation scale), `v1`, `nsigma` or `baro` |
 | `nostore:<m>` | datastore nodes removed before ranking (RCAEval) |
 | `local:<m>` | Nezha with the local pre-onset normal window |
+
+## Control records
+
+Every line of `results/<suite>/controls.jsonl` holds the case, `metric_max` (rank of the labelled service under the
+maximum over metric series only), `equal` (`k_min`, the number of random draws `repeats`, and per mode `pair_top`,
+`pair_random`, `min`, `cap5` and per aggregation `max`, `logsum`, `mean`, `ref_logsum` the number of draws in which
+the labelled service is first), `null` (fault-free windows: their number, first places per aggregation, and per
+node the usable series, the null log sum, the null maximum, the series with a positive score and the
+reference-adjusted log sum) and `reflen` (per normal-window length: its rows, the number of blocks, and first places
+of `mad_logsum`, `sd_logsum`, `mad_max`, `sd_max` and `sd_dc_max`; for Nezha's pre-onset references also
+`sd_dc_max_no_tolerance`, N-Sigma's configuration without the zero-spread tolerance). `timing.jsonl` holds per case
+the CPU seconds of `v11`, `v1`, `nsigma`, `baro`, `torai_stage` and `simplerca`. The definitions are in
+`evaluation/controls.py`.
 
 ## Original runs' records
 
