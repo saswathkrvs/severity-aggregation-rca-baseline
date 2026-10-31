@@ -3,7 +3,8 @@
     python -m evaluation.analysis --results results              # print every number as JSON
     python -m evaluation.analysis --results results --figures figs
 
-Reads ``results/<suite>/study.jsonl`` and ``bocpd.jsonl`` (written by :mod:`evaluation.study`), ``controls.jsonl`` and
+Reads ``results/<suite>/study.jsonl`` and ``bocpd.jsonl`` (written by :mod:`evaluation.study`), ``live.jsonl``
+(written by :mod:`evaluation.live`), ``controls.jsonl`` and
 ``timing.jsonl`` (written by :mod:`evaluation.controls`) and, for the methods that only the original runs have (TORAI,
 random order, RCD, CIRCA, epsilon-Diagnosis), ``results/<suite>/<method>.jsonl``.
 
@@ -625,6 +626,91 @@ def grouped_selection(R):
     return out
 
 
+LIVE_METHODS = (("agg:logsum", V11), ("agg:max", "agg:max"), ("var:sd_logsum", "fact:std-p90-logsum"),
+                ("cmp:nsigma", "cmp:nsigma"), ("cmp:baro", "cmp:baro"), ("cmp:torai_stage", "cmp:torai_stage"),
+                ("cmp:simplerca", "cmp:simplerca"), ("cmp:alerts3", "cmp:alerts3"))
+
+
+def load_live(results_root, suite):
+    """The live-style records (:mod:`evaluation.live`) with the study's abstention rule: where no candidate has
+    positive evidence under the log-compressed sum, every method misses."""
+    recs = records.load(results_root, suite, "live")
+    for r in recs.values():
+        if r.get("abstain"):
+            for k in list(r["ranks"]):
+                r["ranks"][k] = None
+    return recs
+
+
+def live_summary(R, L, suites=HELDOUT) -> OrderedDict:
+    """Every method with a detected onset and windows from the data available at the decision time
+    (:mod:`evaluation.live`) against the same method with the supplied onset (the study's windows; the SD-scaled
+    log sum is the factorial's cell): per suite the onsets, Top-1 both ways, each method's change (live minus
+    supplied) and, live, the log sum minus each method, with cluster-bootstrap intervals; incident-pooled Top-1
+    and suite averages (every suite weighted equally) of the live results."""
+    out = OrderedDict()
+    live_recs, supplied_recs = OrderedDict(), OrderedDict()
+    for s in suites:
+        if not L.get(s):
+            continue
+        live = L[s]
+        both, only_live = [], []
+        supplied_recs[s] = [{"case": r["case"], "cluster": r["cluster"],
+                             "ranks": {m: r["ranks"].get(k) for m, k in LIVE_METHODS}} for r in R[s]]
+        for r in R[s]:
+            x = live[r["case"]]
+            ranks = dict(r["ranks"])
+            for m, _ in LIVE_METHODS:
+                ranks["live:" + m] = x["ranks"][m]
+            both.append({"case": r["case"], "cluster": r["cluster"], "ranks": ranks})
+            only_live.append({"case": r["case"], "cluster": r["cluster"],
+                              "ranks": {m: x["ranks"][m] for m, _ in LIVE_METHODS}})
+        live_recs[s] = only_live
+        errs = [x["onset_error_seconds"] for x in live.values() if x["onset_error_seconds"] is not None]
+        tol = 30 if s in RCAEVAL else 60
+        row = OrderedDict([("cases", len(both)), ("onsets", len(errs)),
+                           ("within_s", tol), ("within", sum(1 for e in errs if abs(e) <= tol)),
+                           ("early", sum(1 for e in errs if e < -tol)), ("late", sum(1 for e in errs if e > tol)),
+                           ("median_abs_error_s", float(np.median(np.abs(errs))) if errs else None),
+                           ("abstain", sum(1 for x in live.values() if x.get("abstain"))),
+                           ("baro_change_points", sum(1 for x in live.values()
+                                                      if x.get("baro_change_point", x.get("change_point"))
+                                                      is not None))])
+        row["top1"] = OrderedDict((m, OrderedDict([("supplied", topk(both, k)), ("live", topk(both, "live:" + m))]))
+                                  for m, k in LIVE_METHODS)
+
+        def onset_class(x):
+            e = x["onset_error_seconds"]
+            return "none" if e is None else "within" if abs(e) <= tol else "early" if e < 0 else "late"
+        by = OrderedDict()
+        for c in ("within", "early", "late", "none"):
+            recs_c = [b for b in both if onset_class(live[b["case"]]) == c]
+            if recs_c:
+                by[c] = OrderedDict([("cases", len(recs_c))] + [
+                    (m, [topk(recs_c, k), topk(recs_c, "live:" + m)]) for m, k in LIVE_METHODS])
+        row["top1_by_onset"] = by
+        sign = OrderedDict()
+        for c, test in (("after", lambda e: e is not None and e > 0), ("at_or_before", lambda e: e is not None and e <= 0),
+                        ("none", lambda e: e is None)):
+            recs_c = [b for b in both if test(live[b["case"]]["onset_error_seconds"])]
+            sign[c] = OrderedDict([("cases", len(recs_c))] + [
+                (m, [topk(recs_c, k), topk(recs_c, "live:" + m)]) for m, k in LIVE_METHODS])
+        row["top1_by_onset_sign"] = sign
+        row["live_minus_supplied"] = OrderedDict((m, paired(both, "live:" + m, k)) for m, k in LIVE_METHODS)
+        row["live_log_sum_minus"] = OrderedDict((m, paired(both, "live:" + V11, "live:" + m))
+                                                for m, _ in LIVE_METHODS[1:])
+        out[s] = row
+    if list(live_recs) == list(suites):
+        out["pooled_top1"] = OrderedDict((m, sum(topk(live_recs[s], m) for s in suites)) for m, _ in LIVE_METHODS)
+        out["cases"] = sum(len(live_recs[s]) for s in suites)
+        out["suite_average"] = suite_average(live_recs, methods=tuple(m for m, _ in LIVE_METHODS[1:]), suites=suites)
+        out["suite_average_rcaeval"] = suite_average(live_recs, methods=tuple(m for m, _ in LIVE_METHODS[1:]),
+                                                     suites=tuple(x for x in suites if x in RCAEVAL))
+        out["suite_average_supplied"] = suite_average(supplied_recs, methods=tuple(m for m, _ in LIVE_METHODS[1:]),
+                                                      suites=suites)
+    return out
+
+
 def nezha_reference(R):
     """Nezha with the study's day-wide reference and with the five most recent fault-free observations before the
     onset (``local:`` methods; fewer where fewer exist): each comparator minus the log-compressed sum under each
@@ -820,6 +906,9 @@ def compute(results_root, recorded_root=None) -> OrderedDict:
     out["suite_average_rcaeval"] = suite_average(R, suites=("RE1", "RE3", "H2"))
     out["suite_average_independent"] = suite_average(R, suites=("PS", "NZ"))
     out["fault_free_agreement"] = fault_free_agreement(R, results_root)
+    L = OrderedDict((s, load_live(results_root, s)) for s in HELDOUT)
+    if any(L.values()):
+        out["live"] = live_summary(R, L)
     return out
 
 
@@ -1151,6 +1240,43 @@ def paper_numbers(a: dict, results_root) -> OrderedDict:
         bf["RE1"]["mem"]["n"]]
     n["RE3 fault types ranked first in every incident by the log sum"] = sorted(
         f for f in bf["RE3"] if not f.startswith("_") and bf["RE3"][f]["v11"] == bf["RE3"][f]["n"])
+    lv = a.get("live")
+    if lv:
+        n["live-style onsets (RE1, RE3, H2, PS, NZ): cases, onsets, within 30 s (PS, NZ: 60 s), earlier, later, "
+          "median absolute error s, abstentions, BARO change points"] = OrderedDict(
+            (s_, [lv[s_][k] for k in ("cases", "onsets", "within", "early", "late", "median_abs_error_s", "abstain",
+                                       "baro_change_points")]) for s_ in HELDOUT)
+        n["live-style Top-1, supplied and live (log sum, maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, "
+          "SimpleRCA, alert count)"] = OrderedDict(
+            (s_, [[v["supplied"], v["live"]] for v in lv[s_]["top1"].values()]) for s_ in HELDOUT)
+        n["live-style: live minus supplied [ci] (same order)"] = OrderedDict(
+            (s_, [[v["diff"], v["ci95"]] for v in lv[s_]["live_minus_supplied"].values()]) for s_ in HELDOUT)
+        n["live-style: log sum minus method [ci] (maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, "
+          "SimpleRCA, alert count)"] = OrderedDict(
+            (s_, [[v["diff"], v["ci95"]] for v in lv[s_]["live_log_sum_minus"].values()]) for s_ in HELDOUT)
+        n["live-style by onset error (RE1, NZ): cases; supplied and live Top-1 (same order as the table)"] = OrderedDict(
+            (s_, OrderedDict((c, [v["cases"]] + [v[m] for m, _ in LIVE_METHODS]) for c, v in lv[s_]["top1_by_onset"].items()))
+            for s_ in ("RE1", "NZ"))
+        n["live-style by onset sign, RCAEval pooled: cases; supplied and live Top-1 (same order as the table)"] = OrderedDict(
+            (c, [sum(lv[s_]["top1_by_onset_sign"][c]["cases"] for s_ in ("RE1", "RE3", "H2"))] + [
+                [sum(lv[s_]["top1_by_onset_sign"][c][m][i] for s_ in ("RE1", "RE3", "H2")) for i in (0, 1)]
+                for m, _ in LIVE_METHODS]) for c in ("after", "at_or_before", "none"))
+        L_NZ, L_RE1 = load_live(results_root, "NZ"), load_live(results_root, "RE1")
+        n["live-style: Nezha incidents whose reference held fewer than five observations; abstentions"] = [
+            sum(1 for x in L_NZ.values() if x.get("normal_rows") is not None and x["normal_rows"] < 5),
+            sum(1 for x in L_NZ.values() if x.get("abstain"))]
+        n["live-style: RE1 incidents with fewer than 300 normal rows; fewest"] = [
+            sum(1 for x in L_RE1.values() if x.get("normal_rows") is not None and x["normal_rows"] < 300),
+            min(x["normal_rows"] for x in L_RE1.values() if x.get("normal_rows") is not None)]
+        n["live-style: pooled Top-1 of 724 (log sum, maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, "
+          "SimpleRCA, alert count)"] = list(lv["pooled_top1"].values())
+        n["live-style table: suite average with the supplied onset, Top-1 % (same order)"] = list(
+            lv["suite_average_supplied"]["top1_percent"].values())
+        for label, key in (("five suites", "suite_average"), ("RCAEval", "suite_average_rcaeval")):
+            sa = lv[key]
+            n["live-style suite average, %s: Top-1 %% (same order)" % label] = list(sa["top1_percent"].values())
+            n["live-style suite average, %s: log sum minus method, percentage points [ci]" % label] = [
+                [v["diff_pp"], v["ci95_pp"]] for v in sa["log_sum_minus"].values()]
     best_ps = max(topk([r for r in L["PS"] if r["fault"] == "error"], k) for k in L["PS"][0]["ranks"]
                   if k.startswith(("agg:", "cmp:")))
     n["PetShop error issues: best Top-1 of any rule or comparator / issues"] = [
@@ -1462,6 +1588,34 @@ EXPECTED = OrderedDict([
        ["RE1", "agg:max", 19, 11], ["RE3", "agg:max", 9, 1]]]),
     ('fault-free agreement (RE1, RE3, H2, PS, NZ): log sum incidents agreeing, Top-1 where agreeing, where differing; the same for the maximum',
      {"RE1": [[25, 24, 279], [19, 17, 268]], "RE3": [[2, 2, 86], [2, 1, 74]], "H2": [[1, 1, 76], [2, 1, 72]], "PS": [[28, 0, 3], [7, 0, 12]], "NZ": [[22, 6, 24], [27, 4, 20]]}),
+    ("live-style onsets (RE1, RE3, H2, PS, NZ): cases, onsets, within 30 s (PS, NZ: 60 s), earlier, later, median absolute error s, abstentions, BARO change points",
+     {"RE1": [375, 373, 171, 142, 60, 35.0, 0, 373], "RE3": [90, 90, 23, 61, 6, 101.0, 0, 90], "H2": [90, 90, 27, 52, 11, 62.5, 0, 90], "PS": [68, 68, 0, 0, 68, 300.0, 0, 0], "NZ": [101, 99, 40, 31, 28, 84.0, 1, 0]}),
+    ("live-style Top-1, supplied and live (log sum, maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)",
+     {"RE1": [[303, 291], [285, 275], [309, 244], [262, 171], [268, 260], [268, 223], [290, 263], [242, 195]], "RE3": [[88, 87], [75, 70], [88, 85], [76, 70], [26, 26], [77, 71], [85, 83], [79, 76]], "H2": [[77, 76], [73, 74], [76, 69], [72, 53], [33, 35], [72, 65], [72, 72], [53, 43]], "PS": [[3, 3], [12, 12], [14, 13], [21, 21], [12, 12], [17, 17], [1, 1], [8, 8]], "NZ": [[30, 24], [24, 22], [35, 23], [37, 13], [27, 15], [38, 13], [36, 27], [33, 22]]}),
+    ("live-style: live minus supplied [ci] (same order)",
+     {"RE1": [[-12, [-22, -3]], [-10, [-19, -1]], [-65, [-85, -46]], [-91, [-118, -65]], [-8, [-23, 5]], [-45, [-68, -24]], [-27, [-41, -15]], [-47, [-67, -29]]], "RE3": [[-1, [-3, 0]], [-5, [-12, 1]], [-3, [-8, 0]], [-6, [-12, -1]], [0, [-3, 3]], [-6, [-11, -2]], [-2, [-5, 0]], [-3, [-11, 6]]], "H2": [[-1, [-7, 5]], [1, [-2, 5]], [-7, [-13, -2]], [-19, [-27, -12]], [2, [-3, 7]], [-7, [-14, 0]], [0, [-5, 5]], [-10, [-21, 1]]], "PS": [[0, [0, 0]], [0, [-3, 3]], [-1, [-3, 0]], [0, [0, 0]], [0, [0, 0]], [0, [0, 0]], [0, [0, 0]], [0, [0, 0]]], "NZ": [[-6, [-15, 3]], [-2, [-12, 8]], [-12, [-21, -4]], [-24, [-35, -13]], [-12, [-23, -2]], [-25, [-36, -14]], [-9, [-17, -1]], [-11, [-20, -2]]]}),
+    ("live-style: log sum minus method [ci] (maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)",
+     {"RE1": [[16, [-1, 33]], [47, [28, 67]], [120, [90, 150]], [31, [11, 51]], [68, [40, 96]], [28, [10, 47]], [96, [71, 122]]], "RE3": [[17, [6, 30]], [2, [0, 6]], [17, [9, 26]], [61, [48, 73]], [16, [8, 24]], [4, [-2, 11]], [11, [5, 18]]], "H2": [[2, [-5, 9]], [7, [2, 13]], [23, [13, 33]], [41, [30, 52]], [11, [2, 20]], [4, [-4, 12]], [33, [24, 43]]], "PS": [[-9, [-21, -1]], [-10, [-20, -2]], [-18, [-34, -4]], [-9, [-23, 0]], [-14, [-26, -4]], [2, [-3, 9]], [-5, [-9, -1]]], "NZ": [[2, [-5, 9]], [1, [-4, 7]], [11, [2, 19]], [9, [1, 17]], [11, [2, 19]], [-3, [-11, 4]], [2, [-5, 10]]]}),
+    ("live-style: pooled Top-1 of 724 (log sum, maximum, SD-scaled log sum, N-Sigma, BARO scorer, TORAI stage, SimpleRCA, alert count)",
+     [481, 453, 434, 328, 348, 389, 446, 344]),
+    ("live-style by onset error (RE1, NZ): cases; supplied and live Top-1 (same order as the table)",
+     {"RE1": {"within": [171, [136, 136], [133, 133], [137, 114], [121, 75], [128, 126], [126, 119], [123, 120], [104, 89]], "early": [142, [118, 113], [106, 102], [122, 114], [100, 93], [99, 102], [101, 94], [118, 112], [98, 92]], "late": [60, [49, 42], [46, 40], [50, 16], [41, 3], [41, 32], [41, 10], [49, 31], [40, 14]], "none": [2, [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]}, "NZ": {"within": [40, [14, 9], [13, 11], [17, 10], [19, 6], [13, 5], [19, 5], [18, 15], [16, 9]], "early": [31, [10, 10], [7, 9], [11, 10], [10, 4], [9, 8], [12, 5], [9, 9], [11, 9]], "late": [28, [5, 5], [4, 2], [6, 3], [7, 3], [4, 2], [6, 3], [7, 3], [6, 4]], "none": [2, [1, 0], [0, 0], [1, 0], [1, 0], [1, 0], [1, 0], [2, 0], [0, 0]]}}),
+    ("live-style by onset sign, RCAEval pooled: cases; supplied and live Top-1 (same order as the table)",
+     {"after": [265, [215, 209], [200, 194], [215, 153], [188, 87], [161, 151], [196, 152], [203, 180], [162, 132]], "at_or_before": [288, [253, 245], [233, 225], [258, 245], [222, 207], [166, 170], [221, 207], [244, 238], [212, 182]], "none": [2, [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]}),
+    ("live-style: Nezha incidents whose reference held fewer than five observations; abstentions",
+     [3, 1]),
+    ("live-style: RE1 incidents with fewer than 300 normal rows; fewest",
+     [67, 123]),
+    ("live-style table: suite average with the supplied onset, Top-1 % (same order)",
+     [59.6, 56.4, 64.0, 60.4, 36.3, 59.9, 57.8, 51.1]),
+    ("live-style suite average, five suites: Top-1 % (same order)",
+     [57.4, 54.6, 55.6, 45.2, 33.9, 49.7, 54.1, 43.6]),
+    ("live-style suite average, five suites: log sum minus method, percentage points [ci]",
+     [[2.8, [-2.0, 7.4]], [1.8, [-1.7, 5.0]], [12.2, [6.3, 17.8]], [23.5, [17.6, 28.9]], [7.7, [2.7, 12.5]], [3.3, [0.0, 6.7]], [13.8, [10.5, 17.2]]]),
+    ("live-style suite average, RCAEval: Top-1 % (same order)",
+     [86.2, 77.8, 78.7, 60.8, 45.7, 70.2, 80.8, 61.4]),
+    ("live-style suite average, RCAEval: log sum minus method, percentage points [ci]",
+     [[8.5, [3.4, 14.1]], [7.5, [4.6, 10.7]], [25.5, [19.9, 31.2]], [40.5, [34.1, 47.0]], [16.0, [10.9, 21.3]], [5.5, [1.4, 9.7]], [24.8, [20.2, 29.6]]]),
 ])
 
 

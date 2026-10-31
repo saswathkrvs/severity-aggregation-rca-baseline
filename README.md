@@ -11,7 +11,9 @@ compares fifteen aggregation rules, a factorial over scale estimator, statistic 
 comparators on identical inputs, on five suites: RCAEval RE1, RE3 and RE2 (development split H1, held-out split
 H2, the third repetitions of the development scenarios), PetShop and Nezha. Controls examine instrumentation
 density (equal series counts, the fault-free noise floor, a score with that floor subtracted) and the normal window
-(its length varied within each suite; on Nezha also a reference available in real time, before the onset). The
+(its length varied within each suite; on Nezha also a reference available in real time, before the onset). A
+live-style test reruns the main methods with an onset detected from the telemetry and windows built only from the
+data available at a decision time after the fault. The
 analysis separates the RCAEval scenarios that occur in development from those that do not, and repeats the choice of
 the aggregation rule with groups of scenarios held out.
 
@@ -25,6 +27,7 @@ the aggregation rule with groups of scenarios held out.
 | `evaluation/bocpd.py` | BARO's onset detector (multivariate Bayesian online change-point detection), for the full BARO pipeline |
 | `evaluation/newdata.py` | the PetShop and Nezha cases and their windows |
 | `evaluation/study.py` | runs every method and variant on a suite and writes one record per case |
+| `evaluation/live.py` | the live-style test: an onset detected from the telemetry before a decision time, windows built only from the data before that time, the main methods on every suite |
 | `evaluation/controls.py` | the controls: equal series counts, the fault-free noise floor, normal windows of different lengths, the maximum over metric series only; run times of every method under one protocol |
 | `evaluation/analysis.py`, `evaluation/figures.py` | every table, number and figure of the paper, from the records, including the suite averages and the fault-free agreement check |
 | `evaluation/datasets.py`, `rankers.py`, `comparators.py`, `pinned_runner.py`, `run.py` | the original runs: case discovery and decoding, the in-process rankers, the pinned RCAEval comparators (including RCD, CIRCA, ε-Diagnosis) and TORAI on RE2 |
@@ -32,6 +35,7 @@ the aggregation rule with groups of scenarios held out.
 | `evaluation/re2_heldout_splits.json` | the RE2 development cases and the splits H1 and H2 |
 | `results/<suite>/study.jsonl` | the study's records (below); suites `RE1`, `RE3`, `H1`, `H2`, `PS` (PetShop), `NZ` (Nezha) |
 | `results/<suite>/bocpd.jsonl` | the BARO pipeline with its own onset (RCAEval suites) |
+| `results/<suite>/live.jsonl` | the live-style test (held-out suites; see Live-style records) |
 | `results/PS/placebo.jsonl`, `results/NZ/study_notolerance.jsonl` | PetShop fault-free windows; Nezha without the spread tolerance |
 | `results/<suite>/controls.jsonl`, `results/<suite>/timing.jsonl` | the controls (held-out suites and RE2-H1); run times (RE1, RE3) |
 | `results/<suite>/<method>.jsonl` | the original runs' records, one per case and method |
@@ -88,6 +92,9 @@ python -m evaluation.study --suite NZ --cases <Nezha checkout>
 python -m evaluation.study --suite RE1 --cases prepared/RE1 --bocpd           # likewise RE3, H1, H2
 python -m evaluation.study --suite PS --cases <petshop>/dataset --placebo
 python -m evaluation.study --suite NZ --cases <Nezha checkout> --no-tolerance
+python -m evaluation.live --suite RE1 --cases prepared/RE1                   # likewise RE3, and H2 with <unpacked torai-data>
+python -m evaluation.live --suite PS --cases <petshop>/dataset
+python -m evaluation.live --suite NZ --cases <Nezha checkout>
 python -m evaluation.controls --suite RE1 --cases prepared/RE1                # likewise RE3
 python -m evaluation.controls --suite H2 --cases <unpacked torai-data>          # likewise H1
 python -m evaluation.controls --suite PS --cases <petshop>/dataset
@@ -101,7 +108,8 @@ and its variants) and the re-implemented N-Sigma, BARO scorer and TORAI severity
 labelled service as the recorded runs in every case. Finished cases are skipped, so an interrupted run continues
 where it stopped. Everything is deterministic. The recorded study times per case (all variants, field `seconds`)
 have medians of 1.3 to 2.3 s on the RCAEval suites (means 3.1 to 4.5 s), 0.7 s on PetShop and 1.2 s on Nezha
-(mean 2.5 s); the BARO pipeline's onset detection takes a median of 0.2 to 0.3 s per case (`bocpd_seconds`). The
+(mean 2.5 s); the BARO pipeline's onset detection takes a median of 0.2 to 0.3 s per case (`bocpd_seconds`), and the live-style
+test about 1 s per case. The
 controls take a median of about 0.5 s per RCAEval case, 15 s per PetShop issue and 4 s per Nezha fault (up to
 about 20 s for the largest Train Ticket faults). Run times depend on the machine: the analysis reads the recorded
 ones (`timing.jsonl`, CPU time from an incident's in-memory windows to its service ranking).
@@ -137,6 +145,18 @@ Method names:
 | `win:<n>-<a>:<m>`, `shift:<s>:<m>`, `interp:<m>`, `placebo:<m>` | windows, onset shifts, interpolation, pre-fault windows (RCAEval); `m` is `v11`, `v11sd` (the log sum on a standard-deviation scale), `v1`, `nsigma` or `baro` |
 | `nostore:<m>` | datastore nodes removed before ranking (RCAEval) |
 | `local:<m>` | Nezha with the local pre-onset normal window |
+
+## Live-style records
+
+Every line of `results/<suite>/live.jsonl` holds the case (as in the study records), `decision_time` (300 s after
+the injection; PetShop: the end of the issue's rows), `detected_onset` and `onset_error_seconds` (onset minus
+injection; PetShop: minus the start of the issue's first row), `status` (`onset` or `no_onset`), the detector's
+result (`change_point` and `detector_rows` on RCAEval; `baro_change_point` on PetShop and Nezha, where the onset
+comes from an alert on the entry service: `alert_time` and `onset_row` on PetShop, `alert_observations` on Nezha),
+`normal_rows`, `anomalous_rows`, `abstain`, and `ranks` and `top` of `agg:logsum`, `agg:max`, `var:sd_logsum`
+(the log sum on a standard-deviation scale), `cmp:nsigma`, `cmp:baro`, `cmp:torai_stage`, `cmp:simplerca` and
+`cmp:alerts3`. Without an onset, or where the record abstains, every method counts the case as a miss. The
+definitions are in `evaluation/live.py`.
 
 ## Control records
 
